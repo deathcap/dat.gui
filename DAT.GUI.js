@@ -1,3 +1,15 @@
+/**
+ * dat.gui Javascript Controller Library
+ * http://dataarts.github.com/dat.gui
+ *
+ * Copyright 2011 Data Arts Team, Google Creative Lab
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ */
 var DAT = DAT || {};
 
 DAT.GUI = function(parameters) {
@@ -307,7 +319,6 @@ DAT.GUI = function(parameters) {
     }
 
     var value = object[propertyName];
-    if(value == undefined && object.get) value = object.get(propertyName);
 
     // Does this value exist? Is it accessible?
     if (value == undefined) {
@@ -402,10 +413,6 @@ DAT.GUI = function(parameters) {
 
   this.reset = function() {
     // TODO ... Set all values back to their initials.
-    for (var i = 0, l = DAT.GUI.allControllers.length; i < l; i++) {
-        // apply to each controller
-        DAT.GUI.allControllers[i].reset();
-    }
   }
 
   this.toggle = function() {
@@ -738,3 +745,550 @@ DAT.GUI.removeClass = function(domElement, className) {
 if (DAT.GUI.getVarFromURL('saveString') != null) {
   DAT.GUI.load(DAT.GUI.getVarFromURL('saveString'));
 }
+DAT.GUI.Controller = function() {
+
+  this.parent = arguments[0];
+  this.object = arguments[1];
+  this.propertyName = arguments[2];
+
+  if (arguments.length > 0) this.initialValue = this.propertyName[this.object];
+
+  this.domElement = document.createElement('div');
+  this.domElement.setAttribute('class', 'guidat-controller ' + this.type);
+
+  this.propertyNameElement = document.createElement('span');
+  this.propertyNameElement.setAttribute('class', 'guidat-propertyname');
+  this.name(this.propertyName);
+  this.domElement.appendChild(this.propertyNameElement);
+
+  DAT.GUI.makeUnselectable(this.domElement);
+
+};
+
+DAT.GUI.Controller.prototype.changeFunction = null;
+DAT.GUI.Controller.prototype.finishChangeFunction = null;
+
+DAT.GUI.Controller.prototype.name = function(n) {
+  this.propertyNameElement.innerHTML = n;
+  return this;
+};
+
+DAT.GUI.Controller.prototype.reset = function() {
+  this.setValue(this.initialValue);
+  return this;
+};
+
+DAT.GUI.Controller.prototype.listen = function() {
+  this.parent.listenTo(this);
+  return this;
+};
+
+DAT.GUI.Controller.prototype.unlisten = function() {
+  this.parent.unlistenTo(this); // <--- hasn't been tested yet
+  return this;
+};
+
+DAT.GUI.Controller.prototype.setValue = function(n) {
+  this.object[this.propertyName] = n;
+  if (this.changeFunction != null) {
+    this.changeFunction.call(this, n);
+  }
+  this.updateDisplay();
+  return this;
+};
+
+DAT.GUI.Controller.prototype.getValue = function() {
+  return this.object[this.propertyName];
+};
+
+DAT.GUI.Controller.prototype.updateDisplay = function() {
+  
+};
+
+DAT.GUI.Controller.prototype.onChange = function(fnc) {
+  this.changeFunction = fnc;
+  return this;
+};
+
+DAT.GUI.Controller.prototype.onFinishChange = function(fnc) {
+  this.finishChangeFunction = fnc;
+  return this;
+};
+
+DAT.GUI.Controller.prototype.options = function() {
+  var _this = this;
+  var select = document.createElement('select');
+  if (arguments.length == 1) {
+    var arr = arguments[0];
+    for (var i in arr) {
+      var opt = document.createElement('option');
+      opt.innerHTML = i;
+      opt.setAttribute('value', arr[i]);
+      if (arguments[i] == this.getValue()) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    }
+  } else {
+    for (var i = 0; i < arguments.length; i++) {
+      var opt = document.createElement('option');
+      opt.innerHTML = arguments[i];
+      opt.setAttribute('value', arguments[i]);
+      if (arguments[i] == this.getValue()) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    }
+  }
+
+  select.addEventListener('change', function() {
+    _this.setValue(this.value);
+    if (_this.finishChangeFunction != null) {
+      _this.finishChangeFunction.call(this, _this.getValue());
+    }
+  }, false);
+  _this.domElement.appendChild(select);
+  return this;
+};
+
+DAT.GUI.ControllerBoolean = function() {
+
+  this.type = "boolean";
+  DAT.GUI.Controller.apply(this, arguments);
+
+  var _this = this;
+  var input = document.createElement('input');
+  input.setAttribute('type', 'checkbox');
+
+  input.checked = this.getValue();
+  this.setValue(this.getValue());
+
+  this.domElement.addEventListener('click', function(e) {
+    input.checked = !input.checked;
+    e.preventDefault();
+    _this.setValue(input.checked);
+  }, false);
+
+  input.addEventListener('mouseup', function(e) {
+    input.checked = !input.checked; // counteracts default.
+  }, false);
+
+  this.domElement.style.cursor = "pointer";
+  this.propertyNameElement.style.cursor = "pointer";
+  this.domElement.appendChild(input);
+
+  this.updateDisplay = function() {
+    input.checked = _this.getValue();
+  };
+
+
+  this.setValue = function(val) {
+    if (typeof val != "boolean") {
+      try {
+        val = eval(val);
+      } catch (e) {
+      }
+    }
+    return DAT.GUI.Controller.prototype.setValue.call(this, val);
+  };
+
+};
+DAT.GUI.extendController(DAT.GUI.ControllerBoolean);
+
+DAT.GUI.ControllerFunction = function() {
+
+  this.type = "function";
+
+  var _this = this;
+
+  DAT.GUI.Controller.apply(this, arguments);
+
+  this.domElement.addEventListener('click', function() {
+    _this.fire();
+  }, false);
+
+  this.domElement.style.cursor = "pointer";
+  this.propertyNameElement.style.cursor = "pointer";
+
+  var fireFunction = null;
+  this.onFire = function(fnc) {
+    fireFunction = fnc;
+    return this;
+  }
+
+  this.fire = function() {
+    if (fireFunction != null) {
+      fireFunction.call(this);
+    }
+    _this.object[_this.propertyName].call(_this.object);
+  };
+
+};
+DAT.GUI.extendController(DAT.GUI.ControllerFunction);
+
+DAT.GUI.ControllerNumber = function() {
+
+  this.type = "number";
+
+  DAT.GUI.Controller.apply(this, arguments);
+
+  var _this = this;
+
+  // If we simply click and release a number field, we want to highlight it.
+  // This variable keeps track of whether or not we've dragged
+  var draggedNumberField = false;
+  
+  var clickedNumberField = false;
+  var draggingHorizontal = false;
+  var draggingVertical = false;
+
+  var y = 0, py = 0;
+
+  var min = arguments[3];
+  var max = arguments[4];
+  var step = arguments[5];
+
+  var defaultStep = function() {
+      step = (max - min) * 0.01;
+  };
+
+  this.min = function() {
+    var needsSlider = false;
+    if (min == undefined && max != undefined) {
+      needsSlider = true;
+    }
+    if (arguments.length == 0) {
+      return min;
+    } else {
+      min = arguments[0];
+    }
+    if (needsSlider) {
+      addSlider();
+      if (step == undefined) {
+        defaultStep();
+      }
+    }
+    return _this;
+  };
+
+  this.max = function() {
+    var needsSlider = false;
+    if (min != undefined && max == undefined) {
+      needsSlider = true;
+    }
+    if (arguments.length == 0) {
+      return max;
+    } else {
+      max = arguments[0];
+    }
+    if (needsSlider) {
+      addSlider();
+      if (step == undefined) { 
+        defaultStep();
+      }
+    }
+    return _this;
+  };
+
+  this.step = function() {
+    if (arguments.length == 0) {
+      return step;
+    } else {
+      step = arguments[0];
+    }
+    return _this;
+  };
+
+  this.getMin = function() {
+    return min;
+  };
+
+  this.getMax = function() {
+    return max;
+  };
+  
+  this.getStep = function() {
+    if (step == undefined) {
+      if (max != undefined && min != undefined) {
+        return (max-min)/100;
+      } else {
+        return 1;
+      }
+    } else {
+      return step;
+    }
+  }
+
+  var numberField = document.createElement('input');
+  numberField.setAttribute('id', this.propertyName);
+  numberField.setAttribute('type', 'text');
+  numberField.setAttribute('value', this.getValue());
+
+  if (step) numberField.setAttribute('step', step);
+
+  this.domElement.appendChild(numberField);
+
+  var slider;
+
+  var addSlider = function() {
+    slider = new DAT.GUI.ControllerNumberSlider(_this, min, max, step, _this.getValue());
+    _this.domElement.appendChild(slider.domElement);
+  };
+
+  if (min != undefined && max != undefined) {
+    addSlider();
+  }
+
+  numberField.addEventListener('blur', function() {
+    var val = parseFloat(this.value);
+    if (slider) {
+      DAT.GUI.removeClass(_this.domElement, 'active');
+    }
+    if (!isNaN(val)) {
+      _this.setValue(val);
+    }
+  }, false);
+
+
+  numberField.addEventListener('mousewheel', function(e) {
+    e.preventDefault();
+    _this.setValue(_this.getValue() + Math.abs(e.wheelDeltaY) / e.wheelDeltaY * _this.getStep());
+    return false;
+  }, false);
+
+  numberField.addEventListener('mousedown', function(e) {
+    py = y = e.pageY;
+    clickedNumberField = true;
+    DAT.GUI.makeSelectable(numberField);
+    document.addEventListener('mousemove', dragNumberField, false);
+    document.addEventListener('mouseup', mouseup, false);
+  }, false);
+
+  // Handle up arrow and down arrow
+  numberField.addEventListener('keydown', function(e) {
+    var newVal;
+    switch (e.keyCode) {
+      case 13:    // enter
+        newVal = parseFloat(this.value);
+        _this.setValue(newVal);
+        break;
+      case 38:    // up
+        newVal = _this.getValue() + _this.getStep();
+        _this.setValue(newVal);
+        break;
+      case 40:    // down
+        newVal = _this.getValue() - _this.getStep();
+        _this.setValue(newVal);
+        break;
+    }
+  }, false);
+
+  var mouseup = function(e) {
+    document.removeEventListener('mousemove', dragNumberField, false);
+    
+    DAT.GUI.makeSelectable(numberField);
+    if (clickedNumberField && !draggedNumberField) {
+      //numberField.focus();
+      //numberField.select();
+    }
+    draggedNumberField = false;
+    clickedNumberField = false;
+    if (_this.finishChangeFunction != null) {
+      _this.finishChangeFunction.call(this, _this.getValue());
+    }
+    draggingHorizontal = false;
+    draggingVertical = false;
+    document.removeEventListener('mouseup', mouseup, false);
+  };
+
+  var dragNumberField = function(e) {
+
+    py = y;
+    y = e.pageY;
+    var dy = py - y;
+
+    
+
+    if (!draggingHorizontal && !draggingVertical) {
+      if (dy == 0) {
+        draggingHorizontal = true;
+      } else {
+        draggingVertical = true;
+      }
+    }
+
+    if (draggingHorizontal) {
+      return true;
+    }
+
+    DAT.GUI.addClass(_this.domElement, 'active');
+
+    DAT.GUI.makeUnselectable(_this.parent.domElement);
+    DAT.GUI.makeUnselectable(numberField);
+
+    draggedNumberField = true;
+    e.preventDefault();
+
+    var newVal = _this.getValue() + dy * _this.getStep();
+    _this.setValue(newVal);
+    return false;
+
+  };
+
+  this.options = function() {
+    _this.noSlider();
+    _this.domElement.removeChild(numberField);
+    return DAT.GUI.Controller.prototype.options.apply(this, arguments);
+  };
+
+  this.noSlider = function() {
+    if (slider) {
+      _this.domElement.removeChild(slider.domElement);
+    }
+    return this;
+  };
+
+  this.setValue = function(val) {
+
+    val = parseFloat(val);
+
+    if (min != undefined && val <= min) {
+      val = min;
+    } else if (max != undefined && val >= max) {
+      val = max;
+    }
+
+    return DAT.GUI.Controller.prototype.setValue.call(this, val);
+
+  };
+
+  this.updateDisplay = function() {
+    numberField.value = DAT.GUI.roundToDecimal(_this.getValue(), 4);
+    if (slider) slider.value = _this.getValue();
+  };
+};
+
+DAT.GUI.extendController(DAT.GUI.ControllerNumber);
+
+DAT.GUI.ControllerNumberSlider = function(numberController, min, max, step, initValue) {
+
+  var clicked = false;
+  var _this = this;
+
+  var x, px;
+
+  this.domElement = document.createElement('div');
+  this.domElement.setAttribute('class', 'guidat-slider-bg');
+
+  this.fg = document.createElement('div');
+  this.fg.setAttribute('class', 'guidat-slider-fg');
+
+  this.domElement.appendChild(this.fg);
+
+  var onDrag = function(e) {
+    if (!clicked) return;
+    var pos = findPos(_this.domElement);
+    var val = DAT.GUI.map(e.pageX, pos[0], pos[0] + _this.domElement
+        .offsetWidth, numberController.getMin(), numberController.getMax());
+    val = Math.round(val / numberController.getStep()) * numberController
+        .getStep();
+    numberController.setValue(val);
+  };
+
+  this.domElement.addEventListener('mousedown', function(e) {
+    clicked = true;
+    x = px = e.pageX;
+    DAT.GUI.addClass(numberController.domElement, 'active');
+    onDrag(e);
+    document.addEventListener('mouseup', mouseup, false);
+  }, false);
+
+  var mouseup = function(e) {
+    DAT.GUI.removeClass(numberController.domElement, 'active');
+    clicked = false;
+    if (numberController.finishChangeFunction != null) {
+      numberController.finishChangeFunction.call(this,
+          numberController.getValue());
+    }
+    document.removeEventListener('mouseup', mouseup, false);
+  };
+
+  var findPos = function(obj) {
+    var curleft = 0, curtop = 0;
+    if (obj.offsetParent) {
+      do {
+        curleft += obj.offsetLeft;
+        curtop += obj.offsetTop;
+      } while ((obj = obj.offsetParent));
+      return [curleft,curtop];
+    }
+  };
+
+  this.__defineSetter__('value', function(e) {
+    this.fg.style.width = DAT.GUI.map(e, numberController.getMin(),
+        numberController.getMax(), 0, 100) + "%";
+  });
+
+  document.addEventListener('mousemove', onDrag, false);
+
+  this.value = initValue;
+
+};
+DAT.GUI.ControllerString = function() {
+
+  this.type = "string";
+
+  var _this = this;
+  DAT.GUI.Controller.apply(this, arguments);
+
+  var input = document.createElement('input');
+
+  var initialValue = this.getValue();
+
+  input.setAttribute('value', initialValue);
+  input.setAttribute('spellcheck', 'false');
+
+  this.domElement.addEventListener('mouseup', function() {
+    input.focus();
+    input.select();
+  }, false);
+
+  // TODO: getting messed up on ctrl a
+  input.addEventListener('keyup', function(e) {
+    if (e.keyCode == 13 && _this.finishChangeFunction != null) {
+      _this.finishChangeFunction.call(this, _this.getValue());
+      input.blur();
+    }
+    _this.setValue(input.value);
+  }, false);
+
+  input.addEventListener('mousedown', function(e) {
+    DAT.GUI.makeSelectable(input);
+  }, false);
+
+  input.addEventListener('blur', function() {
+    DAT.GUI.supressHotKeys = false;
+    if (_this.finishChangeFunction != null) {
+      _this.finishChangeFunction.call(this, _this.getValue());
+    }
+  }, false);
+
+  input.addEventListener('focus', function() {
+    DAT.GUI.supressHotKeys = true;
+  }, false);
+
+  this.updateDisplay = function() {
+    input.value = _this.getValue();
+  };
+
+  this.options = function() {
+    _this.domElement.removeChild(input);
+    return DAT.GUI.Controller.prototype.options.apply(this, arguments);
+  };
+
+  this.domElement.appendChild(input);
+
+};
+
+DAT.GUI.extendController(DAT.GUI.ControllerString);
+DAT.GUI.inlineCSS = '#guidat { position: fixed; top: 0; right: 0; width: auto; z-index: 1001; text-align: right; } .guidat { color: #fff; opacity: 0.97; text-align: left; float: right; margin-right: 20px; margin-bottom: 20px; background-color: #fff; } .guidat, .guidat input { font: 9.5px Lucida Grande, sans-serif; } .guidat-controllers { height: 300px; overflow-y: auto; overflow-x: hidden; background-color: rgba(0, 0, 0, 0.1); } a.guidat-toggle:link, a.guidat-toggle:visited, a.guidat-toggle:active { text-decoration: none; cursor: pointer; color: #fff; background-color: #222; text-align: center; display: block; padding: 5px; } a.guidat-toggle:hover { background-color: #000; } .guidat-controller { padding: 3px; height: 25px; clear: left; border-bottom: 1px solid #222; background-color: #111; } .guidat-controller, .guidat-controller input, .guidat-slider-bg, .guidat-slider-fg { -moz-transition: background-color 0.15s linear; -webkit-transition: background-color 0.15s linear; transition: background-color 0.15s linear; } .guidat-controller.boolean:hover, .guidat-controller.function:hover { background-color: #000; } .guidat-controller input { float: right; outline: none; border: 0; padding: 4px; margin-top: 2px; background-color: #222; } .guidat-controller select { margin-top: 4px; float: right; } .guidat-controller input:hover { background-color: #444; } .guidat-controller input:focus, .guidat-controller.active input { background-color: #555; color: #fff; } .guidat-controller.number { border-left: 5px solid #00aeff; } .guidat-controller.string { border-left: 5px solid #1ed36f; } .guidat-controller.string input { border: 0; color: #1ed36f; margin-right: 2px; width: 148px; } .guidat-controller.boolean { border-left: 5px solid #54396e; } .guidat-controller.function { border-left: 5px solid #e61d5f; } .guidat-controller.number input[type=text] { width: 35px; margin-left: 5px; margin-right: 2px; color: #00aeff; } .guidat .guidat-controller.boolean input { margin-top: 6px; margin-right: 2px; font-size: 20px; } .guidat-controller:last-child { border-bottom: none; -webkit-box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.5); -moz-box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.5); box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.5); } .guidat-propertyname { padding: 5px; padding-top: 7px; cursor: default; display: inline-block; } .guidat-controller .guidat-slider-bg:hover, .guidat-controller.active .guidat-slider-bg { background-color: #444; } .guidat-controller .guidat-slider-bg .guidat-slider-fg:hover, .guidat-controller.active .guidat-slider-bg .guidat-slider-fg { background-color: #52c8ff; } .guidat-slider-bg { background-color: #222; cursor: ew-resize; width: 40%; margin-top: 2px; float: right; height: 21px; } .guidat-slider-fg { cursor: ew-resize; background-color: #00aeff; height: 21px; } ';
